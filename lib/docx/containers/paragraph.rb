@@ -31,7 +31,7 @@ module Docx
         def validate_placeholder_content
           # First, build a map of all text run contents and their positions
           content_map = build_content_map
-          full_text = content_map.map { |m| m[:text] }.join('')
+          full_text = text_runs.map(&:text).join('')
 
           # Use global regex to find all placeholders with their positions
           placeholders = full_text.to_enum(:scan, PLACEHOLDER_REGEX).map do
