@@ -54,6 +54,35 @@ describe 'Paragraph placeholder consolidation' do
       expect(paragraph.text).to eq('Your title is Senior Account Executive at CTC 44,00,000.')
     end
 
+    # ENG-3355 "Indiaoffice": the closing run "}} office." carries no xml:space
+    # (it has no edge whitespace as authored). Consolidating {{offer.office}}
+    # rewrites it to the remainder " office." — which now begins with a space.
+    # Without re-asserting xml:space="preserve", Word/LibreOffice trims that space
+    # on render and glues the value onto "office" ("...Indiaoffice.").
+    it 'preserves whitespace on a run that gains a leading space during consolidation' do
+      node = Nokogiri::XML(<<~XML).root
+        <w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+          <w:r><w:t xml:space="preserve">at our {{</w:t></w:r>
+          <w:proofErr w:type="spellStart"/>
+          <w:r><w:t>offer.office</w:t></w:r>
+          <w:proofErr w:type="spellEnd"/>
+          <w:r><w:t>}} office.</w:t></w:r>
+        </w:p>
+      XML
+      paragraph = described_class.new(node)
+
+      expect(paragraph.text).to eq('at our {{offer.office}} office.')
+
+      paragraph.each_text_run { |run| run.substitute('{{offer.office}}', 'Mumbai, Maharashtra, India') }
+
+      expect(paragraph.text).to eq('at our Mumbai, Maharashtra, India office.')
+
+      office_node = node.xpath('.//w:t', 'w' => 'http://schemas.openxmlformats.org/wordprocessingml/2006/main')
+        .find { |t_node| t_node.text == ' office.' }
+      expect(office_node).not_to be_nil
+      expect(office_node.attribute('space')&.value).to eq('preserve')
+    end
+
     it 'leaves a lone unmatched "}}" untouched' do
       paragraph = paragraph_from('<w:r><w:t xml:space="preserve">Total is 100}} today</w:t></w:r>')
 

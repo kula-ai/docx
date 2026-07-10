@@ -5,6 +5,7 @@
 ### Bug fixes
 
 - Fix placeholder consolidation reintroducing a stray `}}` when two `{{...}}` placeholders share a boundary run (e.g. Word emits `}} in Grade {{` around proofing marks). Consolidation is now a single position-ordered pass that keeps each placeholder atomic and never alters the paragraph's visible text.
+- Fix significant whitespace being dropped on render (e.g. `Indiaoffice`): `Text#content=` now re-asserts `xml:space="preserve"` when the written text has leading/trailing whitespace, so a run that gains an edge space during consolidation/substitution keeps it.
 
 ## v0.7.0
 
