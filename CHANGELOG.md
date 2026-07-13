@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Bug fixes
+
+- Preserve original header/footer filenames when saving. `Document#update` wrote parts back to `word/header{n}.xml` by their parsed (glob) order, but zip parts are not guaranteed to be stored in numeric order — so a document with multiple headers/footers (e.g. a default + a "Different first page" header) could have its parts swapped between files, dropping first-page header content (a logo) on save. Parts now round-trip to their original filenames [ENG-3355].
+
 ## v0.7.0
 
 ### Enhancements

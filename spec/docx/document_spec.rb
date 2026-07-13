@@ -698,4 +698,67 @@ describe Docx::Document do
       expect { @doc.to_html }.to_not raise_error
     end
   end
+
+  describe 'header/footer serialization with multiple parts' do
+    # Builds a .docx whose first-page header (the one that would carry a logo) is
+    # stored in the zip BEFORE the default header — i.e. word/header2.xml precedes
+    # word/header1.xml in stored order. glob returns parts in stored order, so
+    # writing them back by positional index would swap their contents between
+    # files, and the sectPr's headerReference (which points at a filename) would
+    # then resolve to the wrong header — the reported "first-page logo dropped".
+    def build_reordered_header_docx
+      hdr = lambda do |text|
+        %(<?xml version="1.0"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">) +
+          %(<w:p><w:r><w:t>#{text}</w:t></w:r></w:p></w:hdr>)
+      end
+      doc_xml = %(<?xml version="1.0"?><w:document ) +
+        %(xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" ) +
+        %(xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">) +
+        %(<w:body><w:p><w:r><w:t>body</w:t></w:r></w:p><w:sectPr>) +
+        %(<w:headerReference w:type="default" r:id="rIdD"/>) +
+        %(<w:headerReference w:type="first" r:id="rIdF"/><w:titlePg/></w:sectPr></w:body></w:document>)
+      content_types = %(<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">) +
+        %(<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>) +
+        %(<Default Extension="xml" ContentType="application/xml"/>) +
+        %(<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>)
+      root_rels = %(<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">) +
+        %(<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>)
+      doc_rels = %(<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">) +
+        %(<Relationship Id="rIdD" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>) +
+        %(<Relationship Id="rIdF" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header2.xml"/></Relationships>)
+
+      buffer = Zip::OutputStream.write_buffer do |zip|
+        zip.put_next_entry('[Content_Types].xml'); zip.write(content_types)
+        zip.put_next_entry('_rels/.rels'); zip.write(root_rels)
+        zip.put_next_entry('word/document.xml'); zip.write(doc_xml)
+        zip.put_next_entry('word/_rels/document.xml.rels'); zip.write(doc_rels)
+        # first-page header (logo) stored BEFORE the default header
+        zip.put_next_entry('word/header2.xml'); zip.write(hdr.call('FIRSTPAGE_LOGO_HEADER'))
+        zip.put_next_entry('word/header1.xml'); zip.write(hdr.call('BLANK_DEFAULT_HEADER'))
+        zip.put_next_entry('word/styles.xml')
+        zip.write(%(<?xml version="1.0"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>))
+      end
+      file = Tempfile.new(['reordered_headers', '.docx'])
+      file.binmode
+      buffer.rewind
+      file.write(buffer.read)
+      file.close
+      file
+    end
+
+    it 'writes each header back to its original file instead of swapping by index' do
+      file = build_reordered_header_docx
+      begin
+        stream = Docx::Document.new(file.path).stream
+        Zip::File.open_buffer(stream) do |zip|
+          # header1.xml must remain the default header; header2.xml (the first-page
+          # header the sectPr references) must still carry the logo header content.
+          expect(zip.read('word/header1.xml')).to include('BLANK_DEFAULT_HEADER')
+          expect(zip.read('word/header2.xml')).to include('FIRSTPAGE_LOGO_HEADER')
+        end
+      ensure
+        file.unlink
+      end
+    end
+  end
 end

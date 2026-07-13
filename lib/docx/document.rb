@@ -78,16 +78,22 @@ module Docx
     end
 
     def fetch_headers
+      # Record each part's original entry name so #update writes it back to the
+      # same file. glob returns entries in the zip's stored order, which is not
+      # guaranteed to be numeric (word/header2.xml can precede word/header1.xml),
+      # so a positional index would swap header contents between files.
+      @header_names = []
       @zip.glob('word/header*.xml').map do |entry|
-        header_xml = entry.get_input_stream.read
-        Nokogiri::XML(header_xml)
+        @header_names << entry.name
+        Nokogiri::XML(entry.get_input_stream.read)
       end
     end
 
     def fetch_footers
+      @footer_names = []
       @zip.glob('word/footer*.xml').map do |entry|
-        footer_xml = entry.get_input_stream.read
-        Nokogiri::XML(footer_xml)
+        @footer_names << entry.name
+        Nokogiri::XML(entry.get_input_stream.read)
       end
     end
 
@@ -227,10 +233,14 @@ module Docx
       replace_entry 'word/document.xml', doc.serialize(save_with: 0)
       replace_entry 'word/styles.xml', styles_configuration.serialize(save_with: 0)
       headers.each_with_index do |header, index|
-        replace_entry "word/header#{index + 1}.xml", header.serialize(:save_with => 0) if header
+        next unless header
+        entry_name = (@header_names && @header_names[index]) || "word/header#{index + 1}.xml"
+        replace_entry entry_name, header.serialize(:save_with => 0)
       end
       footers.each_with_index do |footer, index|
-        replace_entry "word/footer#{index + 1}.xml", footer.serialize(:save_with => 0) if footer
+        next unless footer
+        entry_name = (@footer_names && @footer_names[index]) || "word/footer#{index + 1}.xml"
+        replace_entry entry_name, footer.serialize(:save_with => 0)
       end
     end
 
